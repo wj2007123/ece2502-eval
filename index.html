@@ -48,6 +48,7 @@
   .seg button.on.e{background:var(--you-b);border-color:var(--you-b);color:#fff;}
   .seg button.on.g{background:var(--good-b);border-color:var(--good-b);color:#fff;}
   .seg button.on.p{background:var(--pass-b);border-color:var(--pass-b);color:#fff;}
+  .seg button.lock{background:#f0f0f0;color:#c4c4c4;border-color:#eee;cursor:not-allowed;}
   footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
     padding:10px 12px;display:flex;gap:8px;z-index:60;box-shadow:0 -2px 10px rgba(0,0,0,.05);}
   footer button{flex:1;border:none;border-radius:12px;padding:13px 0;font-size:15px;font-weight:700;}
@@ -122,17 +123,21 @@ function counts(){
 function render(){
   listEl.innerHTML = "";
   const q = document.getElementById('search').value.trim();
+  const c = counts();
+  const full = {e:c.e>=QUOTA.e, g:c.g>=QUOTA.g, p:c.p>=QUOTA.p};   // 各档是否已满
   NAMES.forEach((name,i)=>{
     const li = document.createElement('li');
     if(state[name]) li.classList.add('done');
     if(q && !name.includes(q)) li.classList.add('hide');
+    // 某档已满时，锁住"未选中该档"的按钮；已在该档的人仍可点（用于移出）
+    const btn = (t,label)=>{
+      const on = state[name]===t;
+      const lock = full[t] && !on;
+      return `<button data-n="${name}" data-t="${t}" class="${t} ${on?'on':''} ${lock?'lock':''}"${lock?' disabled':''}>${label}</button>`;
+    };
     li.innerHTML =
       `<span class="idx">${i+1}</span><span class="nm">${name}</span>`+
-      `<span class="seg">`+
-        `<button data-n="${name}" data-t="e" class="e ${state[name]==='e'?'on':''}">优</button>`+
-        `<button data-n="${name}" data-t="g" class="g ${state[name]==='g'?'on':''}">良</button>`+
-        `<button data-n="${name}" data-t="p" class="p ${state[name]==='p'?'on':''}">合</button>`+
-      `</span>`;
+      `<span class="seg">`+ btn('e','优') + btn('g','良') + btn('p','合') +`</span>`;
     listEl.appendChild(li);
   });
   updateBar();
@@ -161,15 +166,13 @@ function save(){
 }
 
 listEl.addEventListener('click', e=>{
-  const b = e.target.closest('button'); if(!b) return;
+  const b = e.target.closest('button'); if(!b || b.disabled) return;
   const name=b.dataset.n, t=b.dataset.t;
   const cur = state[name];
   if(cur===t){ delete state[name]; render(); return; }   // 再次点击取消
-  if(!cur){                                               // 新分配需检查名额
-    const c=counts();
-    if(c[t]>=QUOTA[t]){ toast(`「${LABEL[t]}」名额已满，请先调整其他同学`); return; }
-  }
-  // 从其他档移入始终允许（会释放原档）
+  // 放入某档（新分配或从别档移入）都要检查该档是否已满
+  const c=counts();
+  if(c[t]>=QUOTA[t]){ toast(`「${LABEL[t]}」名额已满，请先移出其他同学`); return; }
   state[name]=t; render();
 });
 
