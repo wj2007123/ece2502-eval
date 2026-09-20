@@ -34,11 +34,13 @@
 </head>
 <body>
 <h1>ECE2502 班级评议 · 结果汇总</h1>
-<div class="sub">把每位同学发回的“#ECE2502评议#…”整段粘贴到下面（每人一行或多行皆可），点“统计”。</div>
+<div class="sub">两种数据来源都支持：① 从云开发控制台「数据库→evaluations→导出记录」得到的 JSON，粘贴或用下方按钮导入；② 同学微信发回的“#ECE2502评议#…”文本，直接粘贴。系统会自动识别，并按评议人去重保留最新一次。</div>
 
-<textarea id="input" placeholder="示例：&#10;#ECE2502评议# 评议人=张三｜优秀=A、B｜良好=C、D｜合格=E、F&#10;#ECE2502评议# 评议人=李四｜优秀=…｜良好=…｜合格=…"></textarea>
+<textarea id="input" placeholder="把云数据库导出的 JSON 粘进来；或粘贴同学发回的：&#10;#ECE2502评议# 评议人=张三｜优秀=A、B｜良好=C、D｜合格=E、F"></textarea>
 
 <div class="bar">
+  <label class="s" style="display:inline-flex;align-items:center;cursor:pointer;">导入JSON文件
+    <input type="file" id="file" accept=".json,.txt,.jsonl" style="display:none;"></label>
   <button class="p" id="run">统计</button>
   <button class="g" id="export">导出 Excel(CSV)</button>
   <button class="s" id="exportRaw">导出明细(每票一行)</button>
@@ -57,9 +59,28 @@ let ballots=[];   // {voter, e:[], g:[], p:[]}
 let tally={};     // name -> {e,g,p}
 let sortKey='score', sortDir=-1;
 
+function validate(b, warns){
+  const w=[];
+  if(b.e.length!==7)  w.push(`优秀${b.e.length}人(应7)`);
+  if(b.g.length!==18) w.push(`良好${b.g.length}人(应18)`);
+  if(b.p.length!==11) w.push(`合格${b.p.length}人(应11)`);
+  const all=[...b.e,...b.g,...b.p];
+  all.forEach(n=>{ if(!NAMESET.has(n)) w.push(`未知姓名「${n}」`); });
+  const dup=all.filter((n,i)=>all.indexOf(n)!==i);
+  if(dup.length) w.push(`重复:${[...new Set(dup)].join(',')}`);
+  if(w.length) warns.push(`⚠ ${b.voter||'(无名)'}: ${w.join('；')}`);
+}
+
 function parse(){
-  const raw=document.getElementById('input').value;
+  const raw=document.getElementById('input').value.trim();
   ballots=[]; const warns=[];
+  if(raw && (raw[0]==='[' || raw[0]==='{')) parseJSON(raw, warns);
+  else parseCodes(raw, warns);
+  return warns;
+}
+
+// 解析同学复制发回的文本 #ECE2502评议# …
+function parseCodes(raw, warns){
   const seg = raw.split(/#ECE2502评议#/).map(s=>s.trim()).filter(Boolean);
   seg.forEach(s=>{
     const parts = s.split(/[｜|]/).map(x=>x.trim());
@@ -72,24 +93,32 @@ function parse(){
       else if(m=p.match(/^合格\s*[=＝:：]\s*(.*)$/)) b.p=splitNames(m[1]);
     });
     if(!b.voter && !b.e.length && !b.g.length && !b.p.length) return;
-    // validate
-    const w=[];
-    if(b.e.length!==7)  w.push(`优秀${b.e.length}人(应7)`);
-    if(b.g.length!==18) w.push(`良好${b.g.length}人(应18)`);
-    if(b.p.length!==11) w.push(`合格${b.p.length}人(应11)`);
-    const all=[...b.e,...b.g,...b.p];
-    all.forEach(n=>{ if(!NAMESET.has(n)) w.push(`未知姓名「${n}」`); });
-    const dup=all.filter((n,i)=>all.indexOf(n)!==i);
-    if(dup.length) w.push(`重复:${[...new Set(dup)].join(',')}`);
-    if(w.length) warns.push(`⚠ ${b.voter||'(无名)'}: ${w.join('；')}`);
+    validate(b, warns);
     ballots.push(b);
   });
-  // dup voters
   const vc={}; ballots.forEach(b=>vc[b.voter]=(vc[b.voter]||0)+1);
-  Object.keys(vc).forEach(v=>{ if(vc[v]>1) warns.push(`⚠ 评议人「${v}」提交了 ${vc[v]} 次（可能重复）`);});
-  return warns;
+  Object.keys(vc).forEach(v=>{ if(vc[v]>1) warns.push(`⚠ 评议人「${v}」提交了 ${vc[v]} 次（可能重复，请人工核对）`);});
 }
-function splitNames(s){ return s.split(/[、,，\s]+/).map(x=>x.trim()).filter(Boolean); }
+
+// 解析云数据库导出的 JSON（数组或 JSONL），按评议人去重保留最新一次
+function parseJSON(raw, warns){
+  let recs=[];
+  try{
+    if(raw[0]==='['){ recs=JSON.parse(raw); }
+    else { recs=raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>JSON.parse(l)); }
+  }catch(e){ warns.push('⚠ JSON 解析失败：'+e.message); return; }
+  const byVoter={};   // voter -> {rec, ts}
+  recs.forEach(r=>{
+    const voter=(r.voter||'').trim();
+    const b={voter, e:r.excellent||r.e||[], g:r.good||r.g||[], p:r.pass||r.p||[], ts:r.ts||0};
+    if(!voter && !b.e.length) return;
+    if(!byVoter[voter] || (b.ts||0)>=(byVoter[voter].ts||0)) byVoter[voter]=b;
+  });
+  const dupCount = recs.length - Object.keys(byVoter).length;
+  if(dupCount>0) warns.push(`ℹ 共 ${recs.length} 条记录，去重后 ${Object.keys(byVoter).length} 人（同一人多次提交只保留最新一次）`);
+  Object.values(byVoter).forEach(b=>{ validate(b, warns); ballots.push(b); });
+}
+function splitNames(s){ return String(s||'').split(/[、,，\s]+/).map(x=>x.trim()).filter(Boolean); }
 
 function compute(){
   tally={}; NAMES.forEach(n=>tally[n]={e:0,g:0,p:0});
@@ -141,6 +170,12 @@ function esc(x){return `"${String(x==null?'':x).replace(/"/g,'""')}"`;}
 
 document.getElementById('run').onclick=render;
 document.getElementById('clear').onclick=()=>{document.getElementById('input').value='';render();};
+document.getElementById('file').onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ document.getElementById('input').value=r.result; render(); };
+  r.readAsText(f,'utf-8');
+};
 
 document.getElementById('export').onclick=()=>{
   render();

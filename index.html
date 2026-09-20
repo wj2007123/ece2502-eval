@@ -60,6 +60,15 @@
     transition:opacity .2s;pointer-events:none;max-width:80%;text-align:center;}
   .toast.show{opacity:1;}
   .tip{font-size:11px;color:var(--sub);text-align:center;padding:6px 14px 0;}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;
+    justify-content:center;z-index:300;padding:24px;}
+  .overlay.show{display:flex;}
+  .ovcard{background:#fff;border-radius:18px;padding:26px 22px;max-width:340px;text-align:center;}
+  .ovic{font-size:46px;line-height:1;}
+  .ovcard h2{margin:10px 0 6px;font-size:19px;}
+  .ovcard p{color:#666;font-size:14px;margin:0 0 18px;line-height:1.6;}
+  .ovcard button{background:#1e88e5;color:#fff;border:none;border-radius:10px;
+    padding:11px 26px;font-size:15px;font-weight:700;}
 </style>
 </head>
 <body>
@@ -79,17 +88,29 @@
 
 <ul id="list"></ul>
 
-<div class="tip">数据仅保存在你手机本地，不会自动上传；填完请点“复制结果”发回给班委。</div>
+<div class="tip">按 7/18/11 评满全部同学后，点“提交投票”即自动保存；系统同时复制一份结果作备份。</div>
 
 <footer>
   <button class="btn-sub" id="clear">清空</button>
   <button class="btn-sub" id="csv">下载CSV</button>
-  <button class="btn-main" id="submit" disabled>复制结果</button>
+  <button class="btn-main" id="submit" disabled>提交投票</button>
 </footer>
+
+<div class="overlay" id="overlay"><div class="ovcard">
+  <div class="ovic">✅</div>
+  <h2 id="ov-title">提交成功</h2>
+  <p id="ov-msg"></p>
+  <button id="ov-ok">知道了</button>
+</div></div>
 
 <div class="toast" id="toast"></div>
 
+<script src="cloudbase.v3.full.js"></script>
 <script>
+// 腾讯云 CloudBase（新版 PostgreSQL）环境ID；留占位 __ 开头则仅走"复制结果"模式
+const CLOUDBASE_ENV = "ece2502-d0gx3cvdkeaf14920";
+const TABLE = "evaluations";
+
 const NAMES = ["崔凌韵","陈愉信","冯心怡","何石翰风","黄悦洋","黄啸","纪王开来","焦昱杭","李卓","骆艺昀","李博源","李瑾雯","李顺杰","刘修存","卢艺萱","刘洛菲","罗健维","庞家乐","钱可欣","马景程","任相仪","施骁骏","唐桸原","王晨好","王启涵","徐至澳","俞跃","吴夏康成","张予辰","张臻哲","曾旭晨","张家铭","张文诚","张真慈","郑文龙","庄喆"];
 const QUOTA = {e:7,g:18,p:11};
 const LABEL = {e:"优秀",g:"良好",p:"合格"};
@@ -194,13 +215,71 @@ function resultCode(){
   return `#ECE2502评议# 评议人=${v}｜优秀=${c.e.join('、')}｜良好=${c.g.join('、')}｜合格=${c.p.join('、')}`;
 }
 
-document.getElementById('submit').addEventListener('click', ()=>{
-  const code = resultCode();
-  const copy = ()=>toast('结果已复制！请粘贴到微信发给班委');
+// ---- 云开发后端（新版 PostgreSQL / Web SDK v3）----
+let cbReady=null;
+function backendEnabled(){
+  return CLOUDBASE_ENV && CLOUDBASE_ENV.indexOf('__')!==0 && typeof cloudbase!=='undefined';
+}
+function getAuth(app){ return typeof app.auth==='function' ? app.auth() : app.auth; }
+function getRdb(app){ return typeof app.rdb==='function' ? app.rdb() : app.rdb; }
+function initCloudbase(){
+  if(cbReady) return cbReady;
+  if(!backendEnabled()){ cbReady=Promise.reject(new Error('no-backend')); return cbReady; }
+  cbReady=(async()=>{
+    const app=cloudbase.init({env:CLOUDBASE_ENV});
+    const auth=getAuth(app);
+    if(!auth.hasLoginState || !auth.hasLoginState()){   // 未登录才匿名登录
+      await auth.signInAnonymously({});
+    }
+    return app;
+  })();
+  return cbReady;
+}
+
+const overlay=document.getElementById('overlay');
+function showDone(title,msg){
+  document.getElementById('ov-title').textContent=title;
+  document.getElementById('ov-msg').textContent=msg;
+  overlay.classList.add('show');
+}
+
+async function submitVote(){
+  const btn=document.getElementById('submit');
+  const code=resultCode();
+  const c=buildLines();
+  const voter=document.getElementById('voter').value.trim();
+  const backup=()=>tryCopy(code);
+  if(!backendEnabled()){                       // 后端未配置 → 复制模式
+    tryCopy(code,'结果已复制！请粘贴到微信发给班委'); return;
+  }
+  btn.disabled=true; const old=btn.textContent; btn.textContent='提交中…';
+  try{
+    const app=await initCloudbase();
+    const rdb=getRdb(app);
+    const { error } = await rdb.from(TABLE).insert({
+      voter, excellent:c.e, good:c.g, pass:c.p, code,
+      total:c.e.length+c.g.length+c.p.length,
+      ua:navigator.userAgent, ts:Date.now()
+    });
+    if(error) throw new Error(error.message||JSON.stringify(error));
+    localStorage.setItem(KEY+'_submitted', voter+'@'+new Date().toLocaleString());
+    btn.textContent='✅ 已提交'; btn.disabled=true;
+    backup();  // 同时复制一份作备份
+    showDone('✅ 提交成功','你的评议已保存，可以关闭页面了。（已同时复制一份结果作备份）');
+  }catch(err){
+    btn.disabled=false; btn.textContent=old;
+    tryCopy(code,'⚠️ 网络提交失败，已复制结果，请把它粘贴到微信发给班委');
+  }
+}
+function tryCopy(text,msg){
+  const done=()=>{ if(msg) toast(msg); };
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(code).then(copy).catch(()=>fallbackCopy(code,copy));
-  }else fallbackCopy(code,copy);
-});
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));
+  }else fallbackCopy(text,done);
+}
+document.getElementById('submit').addEventListener('click', submitVote);
+document.getElementById('ov-ok').addEventListener('click', ()=>overlay.classList.remove('show'));
+
 function fallbackCopy(text, cb){
   const ta=document.createElement('textarea');
   ta.value=text; ta.style.position='fixed'; ta.style.top='-1000px';
