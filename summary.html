@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ECE2502 班级评议 · 结果汇总</title>
+<style>
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:#f4f5f7;color:#222;padding:16px;max-width:1000px;margin:0 auto;}
+  h1{font-size:20px;margin:6px 0 2px;}
+  .sub{color:#888;font-size:13px;margin-bottom:14px;}
+  textarea{width:100%;height:180px;border:1px solid #dcdfe3;border-radius:12px;padding:12px;
+           font-size:13px;font-family:Consolas,monospace;resize:vertical;outline:none;}
+  textarea:focus{border-color:#1e88e5;}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;}
+  button{border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;}
+  .p{background:#1e88e5;color:#fff;} .s{background:#eef1f4;color:#333;} .g{background:#43a047;color:#fff;}
+  .stat{color:#555;font-size:13px;margin:8px 0;}
+  .stat b{color:#1e88e5;}
+  .warn{background:#fff3e0;border:1px solid #ffcc80;color:#8a5300;border-radius:10px;
+        padding:10px 12px;font-size:13px;margin:8px 0;white-space:pre-wrap;}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;
+        box-shadow:0 1px 4px rgba(0,0,0,.05);font-size:13px;margin-top:10px;}
+  th,td{padding:8px 6px;text-align:center;border-bottom:1px solid #eef0f2;}
+  th{background:#f7f9fb;color:#555;position:sticky;top:0;cursor:pointer;user-select:none;}
+  th:hover{background:#eef3f8;}
+  td.name{text-align:left;font-weight:600;padding-left:12px;}
+  tr:hover td{background:#fafcff;}
+  .e{color:#2e7d32;font-weight:700;} .go{color:#1565c0;font-weight:700;} .pa{color:#ef6c00;font-weight:700;}
+  .rank{color:#999;width:34px;}
+  .top td{background:#f1f8f2;}
+</style>
+</head>
+<body>
+<h1>ECE2502 班级评议 · 结果汇总</h1>
+<div class="sub">把每位同学发回的“#ECE2502评议#…”整段粘贴到下面（每人一行或多行皆可），点“统计”。</div>
+
+<textarea id="input" placeholder="示例：&#10;#ECE2502评议# 评议人=张三｜优秀=A、B｜良好=C、D｜合格=E、F&#10;#ECE2502评议# 评议人=李四｜优秀=…｜良好=…｜合格=…"></textarea>
+
+<div class="bar">
+  <button class="p" id="run">统计</button>
+  <button class="g" id="export">导出 Excel(CSV)</button>
+  <button class="s" id="exportRaw">导出明细(每票一行)</button>
+  <button class="s" id="clear">清空</button>
+</div>
+
+<div class="stat" id="stat"></div>
+<div class="warn" id="warn" style="display:none"></div>
+<div id="tableWrap"></div>
+
+<script>
+const NAMES = ["崔凌韵","陈愉信","冯心怡","何石翰风","黄悦洋","黄啸","纪王开来","焦昱杭","李卓","骆艺昀","李博源","李瑾雯","李顺杰","刘修存","卢艺萱","刘洛菲","罗健维","庞家乐","钱可欣","马景程","任相仪","施骁骏","唐桸原","王晨好","王启涵","徐至澳","俞跃","吴夏康成","张予辰","张臻哲","曾旭晨","张家铭","张文诚","张真慈","郑文龙","庄喆"];
+const NAMESET = new Set(NAMES);
+const WEIGHT = {e:3,g:2,p:1};   // 优秀3 良好2 合格1
+let ballots=[];   // {voter, e:[], g:[], p:[]}
+let tally={};     // name -> {e,g,p}
+let sortKey='score', sortDir=-1;
+
+function parse(){
+  const raw=document.getElementById('input').value;
+  ballots=[]; const warns=[];
+  const seg = raw.split(/#ECE2502评议#/).map(s=>s.trim()).filter(Boolean);
+  seg.forEach(s=>{
+    const parts = s.split(/[｜|]/).map(x=>x.trim());
+    const b={voter:'',e:[],g:[],p:[]};
+    parts.forEach(p=>{
+      let m;
+      if(m=p.match(/^评议人\s*[=＝:：]\s*(.+)$/)) b.voter=m[1].trim();
+      else if(m=p.match(/^优秀\s*[=＝:：]\s*(.*)$/)) b.e=splitNames(m[1]);
+      else if(m=p.match(/^良好\s*[=＝:：]\s*(.*)$/)) b.g=splitNames(m[1]);
+      else if(m=p.match(/^合格\s*[=＝:：]\s*(.*)$/)) b.p=splitNames(m[1]);
+    });
+    if(!b.voter && !b.e.length && !b.g.length && !b.p.length) return;
+    // validate
+    const w=[];
+    if(b.e.length!==7)  w.push(`优秀${b.e.length}人(应7)`);
+    if(b.g.length!==18) w.push(`良好${b.g.length}人(应18)`);
+    if(b.p.length!==11) w.push(`合格${b.p.length}人(应11)`);
+    const all=[...b.e,...b.g,...b.p];
+    all.forEach(n=>{ if(!NAMESET.has(n)) w.push(`未知姓名「${n}」`); });
+    const dup=all.filter((n,i)=>all.indexOf(n)!==i);
+    if(dup.length) w.push(`重复:${[...new Set(dup)].join(',')}`);
+    if(w.length) warns.push(`⚠ ${b.voter||'(无名)'}: ${w.join('；')}`);
+    ballots.push(b);
+  });
+  // dup voters
+  const vc={}; ballots.forEach(b=>vc[b.voter]=(vc[b.voter]||0)+1);
+  Object.keys(vc).forEach(v=>{ if(vc[v]>1) warns.push(`⚠ 评议人「${v}」提交了 ${vc[v]} 次（可能重复）`);});
+  return warns;
+}
+function splitNames(s){ return s.split(/[、,，\s]+/).map(x=>x.trim()).filter(Boolean); }
+
+function compute(){
+  tally={}; NAMES.forEach(n=>tally[n]={e:0,g:0,p:0});
+  ballots.forEach(b=>{
+    b.e.forEach(n=>tally[n]&&tally[n].e++);
+    b.g.forEach(n=>tally[n]&&tally[n].g++);
+    b.p.forEach(n=>tally[n]&&tally[n].p++);
+  });
+}
+function rowData(){
+  return NAMES.map(n=>{
+    const t=tally[n]; const votes=t.e+t.g+t.p;
+    const score=t.e*WEIGHT.e+t.g*WEIGHT.g+t.p*WEIGHT.p;
+    const avg=votes? (score/votes):0;
+    return {name:n,e:t.e,g:t.g,p:t.p,votes,score,avg};
+  });
+}
+
+function render(){
+  const warns=parse(); compute();
+  const w=document.getElementById('warn');
+  if(warns.length){ w.style.display='block'; w.textContent=warns.join('\n'); }
+  else w.style.display='none';
+  document.getElementById('stat').innerHTML=`共解析到 <b>${ballots.length}</b> 份有效评议`;
+  let data=rowData();
+  data.sort((a,b)=> sortDir*((a[sortKey]>b[sortKey])?1:(a[sortKey]<b[sortKey])?-1:0) || (a.score<b.score?1:-1));
+  let html=`<table><thead><tr>
+    <th class="rank">#</th><th data-k="name" class="name" style="text-align:left;padding-left:12px">姓名</th>
+    <th data-k="e">优秀票</th><th data-k="g">良好票</th><th data-k="p">合格票</th>
+    <th data-k="votes">总票数</th><th data-k="score">加权分</th><th data-k="avg">平均分</th></tr></thead><tbody>`;
+  data.forEach((r,i)=>{
+    html+=`<tr class="${i<3?'top':''}"><td class="rank">${i+1}</td>
+      <td class="name">${r.name}</td>
+      <td class="e">${r.e}</td><td class="go">${r.g}</td><td class="pa">${r.p}</td>
+      <td>${r.votes}</td><td><b>${r.score}</b></td><td>${r.avg.toFixed(2)}</td></tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('tableWrap').innerHTML=html;
+  document.querySelectorAll('th[data-k]').forEach(th=>{
+    th.onclick=()=>{ const k=th.dataset.k; if(sortKey===k) sortDir*=-1; else{sortKey=k;sortDir=(k==='name')?1:-1;} render(); };
+  });
+}
+
+function download(name,csv){
+  const blob=new Blob(["﻿"+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+}
+function esc(x){return `"${String(x==null?'':x).replace(/"/g,'""')}"`;}
+
+document.getElementById('run').onclick=render;
+document.getElementById('clear').onclick=()=>{document.getElementById('input').value='';render();};
+
+document.getElementById('export').onclick=()=>{
+  render();
+  let data=rowData().sort((a,b)=>b.score-a.score);
+  let rows=[["排名","姓名","优秀票","良好票","合格票","总票数","加权分(优3良2合1)","平均分"]];
+  data.forEach((r,i)=>rows.push([i+1,r.name,r.e,r.g,r.p,r.votes,r.score,r.avg.toFixed(2)]));
+  download('ECE2502班级评议_统计结果.csv', rows.map(r=>r.map(esc).join(',')).join('\r\n'));
+};
+document.getElementById('exportRaw').onclick=()=>{
+  render();
+  let rows=[["评议人","被评议人","档次"]];
+  const L={e:"优秀",g:"良好",p:"合格"};
+  ballots.forEach(b=>{['e','g','p'].forEach(t=>b[t].forEach(n=>rows.push([b.voter,n,L[t]])));});
+  download('ECE2502班级评议_明细.csv', rows.map(r=>r.map(esc).join(',')).join('\r\n'));
+};
+</script>
+</body>
+</html>
