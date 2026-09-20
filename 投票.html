@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ECE2502 班级评议打分</title>
+<style>
+  :root{
+    --you:#e8f5e9;--you-b:#43a047;
+    --good:#e3f2fd;--good-b:#1e88e5;
+    --pass:#fff8e1;--pass-b:#f9a825;
+    --bg:#f4f5f7;--card:#fff;--line:#e6e8eb;--txt:#222;--sub:#888;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--txt);padding-bottom:100px;}
+  header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid var(--line);
+         box-shadow:0 2px 8px rgba(0,0,0,.04);}
+  .title{padding:12px 14px 6px;font-size:17px;font-weight:700;}
+  .title small{display:block;font-weight:400;color:var(--sub);font-size:12px;margin-top:2px;}
+  .quota{display:flex;gap:8px;padding:0 12px 10px;}
+  .q{flex:1;border-radius:12px;padding:8px 6px;text-align:center;border:1px solid transparent;}
+  .q .lab{font-size:12px;color:var(--sub);}
+  .q .num{font-size:20px;font-weight:800;line-height:1.1;margin-top:2px;}
+  .q .tot{font-size:12px;color:var(--sub);font-weight:400;}
+  .q.excellent{background:var(--you);border-color:var(--you-b);}
+  .q.good{background:var(--good);border-color:var(--good-b);}
+  .q.pass{background:var(--pass);border-color:var(--pass-b);}
+  .q.full{opacity:.55;}
+  .q.over .num{color:#e53935;}
+  .namebar{padding:8px 12px;background:#fff;border-bottom:1px solid var(--line);
+           display:flex;gap:8px;align-items:center;}
+  .namebar input,.searchbar input{flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none;}
+  .namebar input:focus,.searchbar input:focus{border-color:#1e88e5;}
+  .searchbar{padding:8px 12px 4px;}
+  .progress{padding:2px 14px 8px;font-size:12px;color:var(--sub);}
+  .progress b{color:#1e88e5;}
+  ul{list-style:none;margin:0;padding:8px 10px 0;}
+  li{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;
+     padding:10px 12px;display:flex;align-items:center;gap:8px;}
+  li.done{border-color:#cfe8d3;}
+  li.hide{display:none;}
+  .idx{width:22px;color:var(--sub);font-size:12px;text-align:center;flex:none;}
+  .nm{flex:1;font-size:16px;font-weight:600;}
+  .seg{display:flex;gap:6px;flex:none;}
+  .seg button{border:1px solid var(--line);background:#fafafa;color:#555;
+    border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;min-width:44px;}
+  .seg button.on.e{background:var(--you-b);border-color:var(--you-b);color:#fff;}
+  .seg button.on.g{background:var(--good-b);border-color:var(--good-b);color:#fff;}
+  .seg button.on.p{background:var(--pass-b);border-color:var(--pass-b);color:#fff;}
+  footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);
+    padding:10px 12px;display:flex;gap:8px;z-index:60;box-shadow:0 -2px 10px rgba(0,0,0,.05);}
+  footer button{flex:1;border:none;border-radius:12px;padding:13px 0;font-size:15px;font-weight:700;}
+  .btn-main{background:#1e88e5;color:#fff;}
+  .btn-main:disabled{background:#b7c7d6;}
+  .btn-sub{background:#eef1f4;color:#333;flex:0 0 auto;padding:13px 16px;}
+  .toast{position:fixed;left:50%;top:42%;transform:translateX(-50%);background:rgba(0,0,0,.82);
+    color:#fff;padding:12px 18px;border-radius:12px;font-size:14px;z-index:200;opacity:0;
+    transition:opacity .2s;pointer-events:none;max-width:80%;text-align:center;}
+  .toast.show{opacity:1;}
+  .tip{font-size:11px;color:var(--sub);text-align:center;padding:6px 14px 0;}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">ECE2502 班级评议打分
+    <small>请把全班每位同学放入一个档次；三档名额固定，满额后需先调整他人</small>
+  </div>
+  <div class="quota">
+    <div class="q excellent" id="q-e"><div class="lab">优秀 剩余</div><div class="num" id="n-e">7</div><div class="tot">共 7 人</div></div>
+    <div class="q good" id="q-g"><div class="lab">良好 剩余</div><div class="num" id="n-g">18</div><div class="tot">共 18 人</div></div>
+    <div class="q pass" id="q-p"><div class="lab">合格 剩余</div><div class="num" id="n-p">11</div><div class="tot">共 11 人</div></div>
+  </div>
+  <div class="namebar"><input id="voter" placeholder="请填写你的姓名（评议人）" autocomplete="off"></div>
+  <div class="searchbar"><input id="search" placeholder="🔍 搜索同学姓名快速定位" autocomplete="off"></div>
+  <div class="progress">已评 <b id="prog">0</b> / 36 人</div>
+</header>
+
+<ul id="list"></ul>
+
+<div class="tip">数据仅保存在你手机本地，不会自动上传；填完请点“复制结果”发回给班委。</div>
+
+<footer>
+  <button class="btn-sub" id="clear">清空</button>
+  <button class="btn-sub" id="csv">下载CSV</button>
+  <button class="btn-main" id="submit" disabled>复制结果</button>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const NAMES = ["崔凌韵","陈愉信","冯心怡","何石翰风","黄悦洋","黄啸","纪王开来","焦昱杭","李卓","骆艺昀","李博源","李瑾雯","李顺杰","刘修存","卢艺萱","刘洛菲","罗健维","庞家乐","钱可欣","马景程","任相仪","施骁骏","唐桸原","王晨好","王启涵","徐至澳","俞跃","吴夏康成","张予辰","张臻哲","曾旭晨","张家铭","张文诚","张真慈","郑文龙","庄喆"];
+const QUOTA = {e:7,g:18,p:11};
+const LABEL = {e:"优秀",g:"良好",p:"合格"};
+const KEY = "ece2502_eval_v1";
+
+let state = {};           // name -> 'e'|'g'|'p'
+let voterName = "";
+
+// ---- load saved ----
+try{
+  const s = JSON.parse(localStorage.getItem(KEY)||"{}");
+  if(s.state) state = s.state;
+  if(s.voter) voterName = s.voter;
+}catch(e){}
+
+const listEl = document.getElementById('list');
+const toastEl = document.getElementById('toast');
+let toastTimer;
+function toast(msg){
+  toastEl.textContent = msg; toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toastEl.classList.remove('show'),1600);
+}
+
+function counts(){
+  const c={e:0,g:0,p:0};
+  for(const n in state){ if(c[state[n]]!==undefined) c[state[n]]++; }
+  return c;
+}
+
+function render(){
+  listEl.innerHTML = "";
+  const q = document.getElementById('search').value.trim();
+  NAMES.forEach((name,i)=>{
+    const li = document.createElement('li');
+    if(state[name]) li.classList.add('done');
+    if(q && !name.includes(q)) li.classList.add('hide');
+    li.innerHTML =
+      `<span class="idx">${i+1}</span><span class="nm">${name}</span>`+
+      `<span class="seg">`+
+        `<button data-n="${name}" data-t="e" class="e ${state[name]==='e'?'on':''}">优</button>`+
+        `<button data-n="${name}" data-t="g" class="g ${state[name]==='g'?'on':''}">良</button>`+
+        `<button data-n="${name}" data-t="p" class="p ${state[name]==='p'?'on':''}">合</button>`+
+      `</span>`;
+    listEl.appendChild(li);
+  });
+  updateBar();
+}
+
+function updateBar(){
+  const c = counts();
+  const map = {e:['n-e','q-e'],g:['n-g','q-g'],p:['n-p','q-p']};
+  for(const t in map){
+    const rem = QUOTA[t]-c[t];
+    const numEl = document.getElementById(map[t][0]);
+    const boxEl = document.getElementById(map[t][1]);
+    numEl.textContent = rem;
+    boxEl.classList.toggle('full', rem===0 && c[t]<=QUOTA[t]);
+    boxEl.classList.toggle('over', rem<0);
+  }
+  const total = c.e+c.g+c.p;
+  document.getElementById('prog').textContent = total;
+  const ok = total===36 && c.e===QUOTA.e && c.g===QUOTA.g && c.p===QUOTA.p && document.getElementById('voter').value.trim()!=="";
+  document.getElementById('submit').disabled = !ok;
+  save();
+}
+
+function save(){
+  localStorage.setItem(KEY, JSON.stringify({state, voter:document.getElementById('voter').value}));
+}
+
+listEl.addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  const name=b.dataset.n, t=b.dataset.t;
+  const cur = state[name];
+  if(cur===t){ delete state[name]; render(); return; }   // 再次点击取消
+  if(!cur){                                               // 新分配需检查名额
+    const c=counts();
+    if(c[t]>=QUOTA[t]){ toast(`「${LABEL[t]}」名额已满，请先调整其他同学`); return; }
+  }
+  // 从其他档移入始终允许（会释放原档）
+  state[name]=t; render();
+});
+
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('voter').addEventListener('input', updateBar);
+
+document.getElementById('clear').addEventListener('click', ()=>{
+  if(confirm('确定清空所有评议结果？')){ state={}; render(); toast('已清空'); }
+});
+
+function buildLines(){
+  const c={e:[],g:[],p:[]};
+  NAMES.forEach(n=>{ if(state[n]) c[state[n]].push(n); });
+  return c;
+}
+function resultCode(){
+  const v=document.getElementById('voter').value.trim();
+  const c=buildLines();
+  return `#ECE2502评议# 评议人=${v}｜优秀=${c.e.join('、')}｜良好=${c.g.join('、')}｜合格=${c.p.join('、')}`;
+}
+
+document.getElementById('submit').addEventListener('click', ()=>{
+  const code = resultCode();
+  const copy = ()=>toast('结果已复制！请粘贴到微信发给班委');
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(code).then(copy).catch(()=>fallbackCopy(code,copy));
+  }else fallbackCopy(code,copy);
+});
+function fallbackCopy(text, cb){
+  const ta=document.createElement('textarea');
+  ta.value=text; ta.style.position='fixed'; ta.style.top='-1000px';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{document.execCommand('copy'); cb();}catch(e){prompt('请长按复制以下内容发给班委：',text);}
+  document.body.removeChild(ta);
+}
+
+document.getElementById('csv').addEventListener('click', ()=>{
+  const c=counts();
+  if(!(c.e===QUOTA.e&&c.g===QUOTA.g&&c.p===QUOTA.p)){ toast('请先按 7/18/11 名额评满全部同学'); return; }
+  const v=document.getElementById('voter').value.trim()||'未填写';
+  let rows=[["评议人","被评议人","档次"]];
+  NAMES.forEach(n=>rows.push([v,n,LABEL[state[n]]]));
+  const csv="﻿"+rows.map(r=>r.map(x=>`"${(x||'').replace(/"/g,'""')}"`).join(',')).join("\r\n");
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=`班级评议_${v}.csv`; a.click();
+});
+
+// init
+document.getElementById('voter').value = voterName;
+render();
+</script>
+</body>
+</html>
