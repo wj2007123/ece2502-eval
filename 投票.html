@@ -92,7 +92,6 @@
 
 <footer>
   <button class="btn-sub" id="clear">清空</button>
-  <button class="btn-sub" id="csv">下载CSV</button>
   <button class="btn-main" id="submit" disabled>提交投票</button>
 </footer>
 
@@ -265,7 +264,7 @@ async function submitVote(){
     localStorage.setItem(KEY+'_submitted', voter+'@'+new Date().toLocaleString());
     btn.textContent='✅ 已提交'; btn.disabled=true;
     backup();  // 同时复制一份作备份
-    showDone('✅ 提交成功','你的评议已保存，可以关闭页面了。（已同时复制一份结果作备份）');
+    showDone('感谢您，提交成功！','');
   }catch(err){
     btn.disabled=false; btn.textContent=old;
     tryCopy(code,'⚠️ 网络提交失败，已复制结果，请把它粘贴到微信发给班委');
@@ -287,18 +286,6 @@ function fallbackCopy(text, cb){
   try{document.execCommand('copy'); cb();}catch(e){prompt('请长按复制以下内容发给班委：',text);}
   document.body.removeChild(ta);
 }
-
-document.getElementById('csv').addEventListener('click', ()=>{
-  const c=counts();
-  if(!(c.e===QUOTA.e&&c.g===QUOTA.g&&c.p===QUOTA.p)){ toast('请先按 7/18/11 名额评满全部同学'); return; }
-  const v=document.getElementById('voter').value.trim()||'未填写';
-  let rows=[["评议人","被评议人","档次"]];
-  NAMES.forEach(n=>rows.push([v,n,LABEL[state[n]]]));
-  const csv="﻿"+rows.map(r=>r.map(x=>`"${(x||'').replace(/"/g,'""')}"`).join(',')).join("\r\n");
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob); a.download=`班级评议_${v}.csv`; a.click();
-});
 
 // init
 document.getElementById('voter').value = voterName;
